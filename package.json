@@ -1,0 +1,13 @@
+{
+  "name": "pi-fornace-supervisor-stack",
+  "version": "1.0.0",
+  "description": "Sibling cmux supervisor Pi session over a worker Pi session: flash-digest monitoring, decision-point engagement, frontier-model escalation rules, user-facing buffering. Includes the pi-fornace-supervisor-stack skill with launcher and digest scripts.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Francesco Frapporti <effedue@gmail.com>",
+  "repository": { "type": "git", "url": "git+https://github.com/Fornace/pi-fornace-supervisor-stack.git" },
+  "keywords": ["pi-package", "pi", "pi-coding-agent", "cmux", "supervisor", "agent-orchestration", "skill"],
+  "files": ["skills", "README.md", "CHANGELOG.md", "LICENSE"],
+  "pi": { "skills": ["./skills"] },
+  "engines": { "node": ">=20" }
+}
