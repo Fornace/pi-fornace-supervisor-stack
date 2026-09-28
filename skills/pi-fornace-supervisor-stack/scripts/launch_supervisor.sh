@@ -187,10 +187,13 @@ surface=$(cmux top --all --processes --flat 2>/dev/null | grep "pi\\.$worker_ful
 new_surface=$(cmux new-surface --type terminal --focus false 2>&1 | grep -oE 'surface:[0-9]+' | head -1)
 [[ -n "$new_surface" ]] || { echo "ERROR: could not create surface"; exit 1; }
 
+# The supervisor's short id is pinned to the worker it watches, and its role is
+# declared, so pi-identity records sup-<worker> instead of asking a model.
 sup_id="sup-${worker_slug:-$worker_id8}"
 worker_label="${worker_slug:+$worker_slug (}$worker_full${worker_slug:+)}"
+launch_env="PI_SESSION_ROLE=supervisor PI_SESSION_SLUG=$sup_id"
 cmux send --surface "$new_surface" \
-  "pi --model $max --name Supervisor --session-id $sup_id --append-system-prompt $SKILL/references/supervisor-charter.md"
+  "$launch_env pi --model $max --name Supervisor --session-id $sup_id --append-system-prompt $SKILL/references/supervisor-charter.md"
 cmux send-key --surface "$new_surface" enter
 
 sleep 6
