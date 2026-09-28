@@ -10,7 +10,8 @@ Usage:
   worker_digest.py --session <path-or-id-prefix> [--state <file>]
                    [--summarize] [--json] [--full]
 
-  --session   session file path, full/partial session UUID, or 8-char sidebar id
+  --session   session file path, full/partial session UUID, 8-char sidebar id,
+              or a pi-identity short id (see pi-session-id list)
   --state     state file (default /tmp/pi-sup-digest-<id8>.state)
   --summarize call fornace-flash for a DECISIONS/FILES/STATE/BLOCKERS/NEXT recap
   --json      print recap as JSON
@@ -30,6 +31,7 @@ import urllib.request
 from pathlib import Path
 
 SESSIONS_ROOT = Path.home() / ".pi/agent/sessions"
+IDENTITY_REGISTRY = Path.home() / ".pi" / "agent" / "state" / "pi-sessions.json"
 MAX_DIGEST_BYTES = 24000  # cap fed to flash
 LARGE_RECORD = 120_000  # bytes; summarize existence, skip extraction
 DEFAULT_FLASH = os.environ.get("PI_SUP_FLASH_MODEL", "fornace-flash")
@@ -37,12 +39,27 @@ FIRST_RUN_RECENT_WINDOW = 256 * 1024  # first run on big sessions: last N bytes
 FIRST_RUN_BIG = 512 * 1024
 
 
+def slug_to_session_id(ref: str) -> str | None:
+    """A pi-identity short id resolves to the session it is bound to."""
+    try:
+        registry = json.loads(IDENTITY_REGISTRY.read_text())
+    except FileNotFoundError:
+        return None
+    except (OSError, json.JSONDecodeError) as error:
+        sys.exit(f"ERROR: unreadable identity registry at {IDENTITY_REGISTRY}: {error}")
+    for session_id, identity in registry.get("sessions", {}).items():
+        if identity.get("slug") == ref:
+            return session_id
+    return None
+
+
 def resolve_session(ref: str) -> Path:
     ref = ref.strip()
     p = Path(ref)
     if p.exists() and p.suffix == ".jsonl":
         return p
-    # try as partial/full uuid or 8-char id embedded in filenames
+    # a short id is an exact identity; anything else is a filename search
+    ref = slug_to_session_id(ref) or ref
     matches = []
     for f in SESSIONS_ROOT.glob("*/*.jsonl"):
         name = f.name
@@ -151,7 +168,6 @@ def main() -> None:
     state_file = Path(args.state or f"/tmp/pi-sup-digest-{id8}.state")
 
     size = f.stat().st_size
-    state_file = Path(args.state or f"/tmp/pi-sup-digest-{id8}.state")
     first_run = not state_file.exists()
     offset = int(state_file.read_text().strip()) if state_file.exists() else 0
     if offset > size:  # session file truncated/replaced

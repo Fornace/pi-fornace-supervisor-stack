@@ -143,19 +143,40 @@ export PI_SUP_MAX_MODEL="$max"
 export PI_SUP_ASTRA_MODEL="$astra"
 
 # ---------------------------------------------------------------- resolve worker
-session_file=$(python3 - "$worker_ref" <<'EOF'
-import sys
+# Accepts a session file, a full/partial UUID, an 8-char id, or a pi-identity
+# short id (the durable slug bound to the session). Prints "<file>\t<slug>".
+resolved=$(python3 - "$worker_ref" <<'EOF'
+import json, sys
 from pathlib import Path
 ref = sys.argv[1].strip()
+registry = Path.home()/".pi/agent/state/pi-sessions.json"
+try:
+    sessions = json.loads(registry.read_text()).get("sessions", {})
+except FileNotFoundError:
+    sessions = {}
+except (OSError, json.JSONDecodeError) as e:
+    sys.exit(f"ERROR: unreadable identity registry {registry}: {e}")
+slug = None
+for sid, identity in sessions.items():
+    if identity.get("slug") == ref:
+        slug, ref = ref, sid
+        break
 p = Path(ref)
 if p.exists() and p.suffix == ".jsonl":
-    print(p); raise SystemExit
+    print(f"{p}\t{slug or ''}"); raise SystemExit
 root = Path.home()/".pi/agent/sessions"
 m = [f for f in root.glob("*/*.jsonl") if ref in f.name]
 if not m: sys.exit(f"ERROR: no session matching {ref!r}")
-print(max(m, key=lambda f: f.stat().st_mtime))
+best = max(m, key=lambda f: f.stat().st_mtime)
+if slug is None:
+    for sid, identity in sessions.items():
+        if sid and sid in best.name:
+            slug = identity.get("slug"); break
+print(f"{best}\t{slug or ''}")
 EOF
 )
+session_file=${resolved%%$'\t'*}
+worker_slug=${resolved#*$'\t'}
 worker_id8=$(basename "$session_file" | grep -oE '[0-9a-f]{8}-' | head -1 | tr -d '-')
 worker_full=$(basename "$session_file" .jsonl)
 worker_full=${worker_full#*_}   # strip timestamp prefix -> full uuid
@@ -166,7 +187,8 @@ surface=$(cmux top --all --processes --flat 2>/dev/null | grep "pi\\.$worker_ful
 new_surface=$(cmux new-surface --type terminal --focus false 2>&1 | grep -oE 'surface:[0-9]+' | head -1)
 [[ -n "$new_surface" ]] || { echo "ERROR: could not create surface"; exit 1; }
 
-sup_id="sup-${worker_id8}"
+sup_id="sup-${worker_slug:-$worker_id8}"
+worker_label="${worker_slug:+$worker_slug (}$worker_full${worker_slug:+)}"
 cmux send --surface "$new_surface" \
   "pi --model $max --name Supervisor --session-id $sup_id --append-system-prompt $SKILL/references/supervisor-charter.md"
 cmux send-key --surface "$new_surface" enter
@@ -180,7 +202,7 @@ astra_line="Astra escalation DISABLED (no route available)."
 [[ -n "$astra" ]] && astra_line="Astra escalation route: $astra (class rules still apply: references/astra-engagement.md)."
 
 read -r -d '' mission <<EOF || true
-MISSION. Worker pi session $worker_full (file $session_file, surface ${surface:-verify-me})$goal_line
+MISSION. Worker pi session $worker_label (file $session_file, surface ${surface:-verify-me})$goal_line
 Your charter is in your system prompt. Model stack confirmed live at launch:
 - digest model (flash class): $flash
 - escalation: $astra_line
@@ -188,7 +210,7 @@ Startup sequence:
 1) Verify the worker surface per ~/.pi/agent/guides/cmux-agent-communication.md.
 2) Confirm the worker goal from pi-codex-goal digest events; if absent, ask me.
 3) Create ONE bounded monitor watcher on the session file, then go idle.
-4) Digest with: python3 $SKILL/scripts/worker_digest.py --session $worker_full --summarize --model $flash
+4) Digest with: python3 $SKILL/scripts/worker_digest.py --session ${worker_slug:-$worker_full} --summarize --model $flash
 5) If an astra route is named above, use exactly that route label for escalation subagents.
 Engage only at decision points. I will talk to you, not the worker.
 EOF
@@ -200,5 +222,5 @@ echo "SUPERVISOR LAUNCHED: surface=$new_surface session=$sup_id"
 echo "  supervisor model: $max"
 echo "  digest model:     $flash"
 echo "  astra route:      ${astra:-<disabled>}"
-echo "  worker:           $worker_full (surface ${surface:-unverified})"
+echo "  worker:           $worker_label (surface ${surface:-unverified})"
 echo "Next: read $new_surface to confirm the mission was accepted."
