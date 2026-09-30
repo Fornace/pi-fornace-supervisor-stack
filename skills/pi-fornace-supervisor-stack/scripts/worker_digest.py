@@ -23,6 +23,7 @@ Output: compact digest lines "TYPE role tool | one-line summary" and, with
 """
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -140,6 +141,7 @@ def flash_summarize(digest: str, model: str, as_json: bool) -> str:
             {"role": "system", "content": system},
             {"role": "user", "content": digest[:MAX_DIGEST_BYTES]},
         ],
+        "reasoning_effort": "none",
         "max_tokens": 700,
         "temperature": 0,
     }).encode()
@@ -148,7 +150,16 @@ def flash_summarize(digest: str, model: str, as_json: bool) -> str:
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=60) as r:
         data = json.load(r)
-    return data["choices"][0]["message"]["content"].strip()
+    reasoning = data.get("usage", {}).get("completion_tokens_details", {}).get("reasoning_tokens", 0)
+    if reasoning and reasoning > 0:
+        raise RuntimeError(f"Summary route {data.get('model')} violated no-reasoning request ({reasoning} tokens)")
+    choices = data.get("choices") or []
+    choice = choices[0] if choices else {}
+    content = choice.get("message", {}).get("content")
+    if not isinstance(content, str) or not content.strip():
+        raise RuntimeError(f"Empty summary response (model={data.get('model')}, "
+                           f"finish={choice.get('finish_reason')}, reasoning_tokens={reasoning})")
+    return content.strip()
 
 
 def main() -> None:
@@ -163,8 +174,8 @@ def main() -> None:
     args = ap.parse_args()
 
     f = resolve_session(args.session)
-    id8 = re.findall(r"([0-9a-f]{8})-", f.stem)
-    id8 = id8[0] if id8 else f.stem[:8]
+    # Named session filenames can start with a date, so a UUID regex collides.
+    id8 = hashlib.sha256(str(f.resolve()).encode()).hexdigest()[:16]
     state_file = Path(args.state or f"/tmp/pi-sup-digest-{id8}.state")
 
     size = f.stat().st_size
@@ -223,14 +234,15 @@ def main() -> None:
         if goals:
             digest = "GOAL/SUMMARY HISTORY (full scan):\n" + "\n".join(goals[-10:]) + "\n\nRECENT ACTIVITY:\n" + digest
 
-    state_file.write_text(str(size))
-
     recap = None
-    if args.summarize and len(digest) > 300:
+    if args.summarize:
         try:
             recap = flash_summarize(digest, args.model, args.json)
-        except Exception as e:
-            recap = f"FLASH SUMMARY FAILED: {e}"
+        except Exception as error:
+            print(f"FLASH SUMMARY FAILED: {error}", file=sys.stderr)
+            sys.exit(1)  # Keep the cursor: a failed recap has not consumed records.
+
+    state_file.write_text(str(new_offset))
 
     if args.summarize:
         if recap:

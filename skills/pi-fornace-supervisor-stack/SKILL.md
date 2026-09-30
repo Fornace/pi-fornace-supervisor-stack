@@ -139,7 +139,9 @@ python3 ~/.pi/agent/skills/pi-fornace-supervisor-stack/scripts/worker_digest.py 
   activity) plus a mechanical full-file scan of GOAL/SUMMARY history, so a
   mid-flight supervisor sees current state and the goal without paying for
   the whole transcript.
-- `NO NEW RECORDS` when idle. State in `/tmp/pi-sup-digest-<id8>.state`.
+- Summary requests send `reasoning_effort: "none"` and reject reported reasoning tokens or empty content. Verify the live route supports reasoning off: an always-on model is incompatible with this summary contract, even if the gateway normalizes off to minimal.
+- Failed summaries exit nonzero and leave the byte cursor unchanged. State keys hash the resolved session path so named sessions do not share a date-prefix cursor.
+- `NO NEW RECORDS` when idle. State in `/tmp/pi-sup-digest-<pathhash16>.state`.
 - Standalone use: cheap progress check on any worker session without opening
   its transcript, from any session or shell.
 
