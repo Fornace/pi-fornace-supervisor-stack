@@ -9,5 +9,5 @@
   "keywords": ["pi-package", "pi", "pi-coding-agent", "cmux", "supervisor", "agent-orchestration", "skill"],
   "files": ["skills", "README.md", "CHANGELOG.md", "LICENSE"],
   "pi": { "skills": ["./skills"] },
-  "engines": { "node": ">=20" }
+  "engines": { "node": ">=22.23.4" }
 }
