@@ -111,6 +111,24 @@ def digest_record(rec: dict) -> str | None:
         return "\n".join(out) if out else None
     if t == "custom":
         ct = rec.get("customType", "?")
+        if ct == "fornace.work.v1":
+            d = rec.get("data", {})
+            evt = d.get("type", "")
+            if "goal" in d or evt.startswith("goal_"):
+                g = d.get("goal") or {}
+                status = g.get("status", "?")
+                rev = f" rev {g.get('revision')}" if g.get("revision") else ""
+                used = f" {g.get('tokensUsed', 0):,} tok" if g.get("tokensUsed") else ""
+                return f"GOAL {status}{rev}{used} | {one_line(str(g.get('objective','')), 200)}"
+            if evt.startswith("todo_") or "item" in d:
+                item = d.get("item", {})
+                lane = item.get("lane", "?").upper()
+                title = item.get("title", "")
+                rej = f" [rejected #{item['rejection']['challengeCount']}]" if item.get("rejection") else ""
+                return f"TODO {lane}{rej} | {one_line(title, 160)}"
+            if evt == "event_batch":
+                return f"WORK batch ({len(d.get('events', []))} events)"
+            return f"WORK {evt}"
         if ct == "pi-codex-goal":
             d = rec.get("data", {})
             g = d.get("goal", {})
@@ -220,7 +238,7 @@ def main() -> None:
         goals = []
         with f.open("rb") as fh:
             for blob in fh:
-                if b"pi-codex-goal" not in blob and b'"summary"' not in blob:
+                if b"fornace.work.v1" not in blob and b"pi-codex-goal" not in blob and b'"summary"' not in blob:
                     continue
                 if len(blob) > LARGE_RECORD:
                     continue
@@ -229,10 +247,10 @@ def main() -> None:
                 except Exception:
                     continue
                 d = digest_record(rec)
-                if d and (d.startswith("GOAL") or d.startswith("SUMMARY")):
+                if d and (d.startswith("GOAL") or d.startswith("TODO") or d.startswith("WORK") or d.startswith("SUMMARY")):
                     goals.append(d)
         if goals:
-            digest = "GOAL/SUMMARY HISTORY (full scan):\n" + "\n".join(goals[-10:]) + "\n\nRECENT ACTIVITY:\n" + digest
+            digest = "GOAL/TODO/SUMMARY HISTORY (full scan):\n" + "\n".join(goals[-15:]) + "\n\nRECENT ACTIVITY:\n" + digest
 
     recap = None
     if args.summarize:
